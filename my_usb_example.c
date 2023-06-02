@@ -32,8 +32,16 @@ SOFTWARE.
 #include <stdlib.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <time.h>
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+#ifndef _WIN32
 #include <unistd.h>
+#else
+#include <windows.h>
+#include <getopt.h>
+#endif
 
 //#define HAS_FIRMWARE true
 
@@ -68,7 +76,7 @@ static void transfer_callback(struct libusb_transfer *transfer) {
   if (transfer->status != LIBUSB_TRANSFER_COMPLETED) {
     failure_count++;
     printf("Transfer callback status %s received %d \
-	   bytes.\n",
+       bytes.\n",
            libusb_error_name(transfer->status), transfer->actual_length);
   } else {
     size = transfer->actual_length;
@@ -121,13 +129,25 @@ static void free_transfer_buffers(unsigned char **databuffers,
   }
 }
 
+#ifdef _WIN32
+BOOL WINAPI
+sig_hdlr(int signum)
+{
+  if (CTRL_C_EVENT == signum) {
+    fprintf(stderr, "\nAbort. Stopping transfers\n");
+    stop_transfers = true;
+    return TRUE;
+  }
+    return FALSE;
+}
+#else
 static void sig_hdlr(int signum) {
 
   (void)signum;
   fprintf(stderr, "\nAbort. Stopping transfers\n");
   stop_transfers = true;
 }
-
+#endif
 int main(int argc, char const *argv[]) {
   /* code */
   struct libusb_device_descriptor desc;
@@ -144,14 +164,15 @@ int main(int argc, char const *argv[]) {
 
   uint16_t vendor_id;  //= 0x04b4;
   uint16_t product_id; // = 0x00f1;
-
+#ifndef _WIN32
   struct sigaction sigact;
-
   sigact.sa_handler = sig_hdlr;
   sigemptyset(&sigact.sa_mask);
   sigact.sa_flags = 0;
   (void)sigaction(SIGINT, &sigact, NULL);
-
+#else
+  SetConsoleCtrlHandler( (PHANDLER_ROUTINE) sig_hdlr, TRUE);
+#endif
   struct libusb_transfer **transfers = NULL; // List of transfer structures.
   unsigned char **databuffers = NULL;        // List of data buffers.
 
@@ -205,8 +226,11 @@ int main(int argc, char const *argv[]) {
               "device %d.%d (logical).\n",
               libusb_get_bus_number(dev), libusb_get_device_address(dev));
     }
-
+#ifdef _WIN32
+    Sleep(2);
+#else
     sleep(2);
+#endif
   }
 
   product_id = 0x00f1;
@@ -295,7 +319,6 @@ int main(int argc, char const *argv[]) {
   while (xfers_in_progress != 0) {
     fprintf(stderr, "%d transfers are pending\n", xfers_in_progress);
     libusb_handle_events(NULL);
-    sleep(1);
   }
 
   fprintf(stderr, "Transfers completed\n");
